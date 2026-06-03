@@ -144,11 +144,12 @@ export class ZSession {
   }
 
   async balances(
-    ftSymbols?: string[] | Record<string, unknown>,
+    ftSymbols?: string[],
     nftContract?: ZeosLinkBalanceFilter,
     atContract?: ZeosLinkBalanceFilter,
     opts: ZeosLinkRequestOptions = {},
   ): Promise<ZeosLinkBalancesResult> {
+    this.validateBalancesParams(ftSymbols, nftContract, atContract);
     await this.ensureOpen(this.onCloseExternal);
     const res = await this.send(
       "balances",
@@ -332,6 +333,22 @@ export class ZSession {
   }
 
   private handleUncorrelatedMessage(msg: ZeosLinkWsFrame): void {
+    if (typeof msg.id !== "number" && msg.status === "error" && this.pending.size === 1) {
+      const first = this.pending.entries().next().value;
+      if (!first) return;
+      const [pendingId, pending] = first;
+      clearTimeout(pending.timeout);
+      this.pending.delete(pendingId);
+      if (this.lastTransactRequestId === pendingId) this.lastTransactRequestId = null;
+
+      if (pending.resolveProtocolError) {
+        pending.resolve(normalizeErrorFrame(pending.request, msg));
+      } else {
+        pending.reject(normalizeProtocolError(pending.request, msg));
+      }
+      return;
+    }
+
     if (this.isTransacting && msg.status === "error" && this.lastTransactRequestId !== null) {
       const pending = this.pending.get(this.lastTransactRequestId);
       if (!pending || pending.request !== "transact") return;
@@ -354,10 +371,26 @@ export class ZSession {
 
   private validateChainParams(chain: ZeosLinkChainParams): void {
     if (!chain || typeof chain !== "object") throw new TypeError("login() expects chain parameters");
-    if (!chain.chain_id) throw new TypeError("chain.chain_id is required");
-    if (!chain.protocol_contract) throw new TypeError("chain.protocol_contract is required");
-    if (!chain.vault_contract) throw new TypeError("chain.vault_contract is required");
-    if (!chain.alias_authority) throw new TypeError("chain.alias_authority is required");
+    if (typeof chain.chain_id !== "string" || chain.chain_id.length === 0) throw new TypeError("chain.chain_id is required");
+    if (typeof chain.protocol_contract !== "string" || chain.protocol_contract.length === 0) throw new TypeError("chain.protocol_contract is required");
+    if (typeof chain.vault_contract !== "string" || chain.vault_contract.length === 0) throw new TypeError("chain.vault_contract is required");
+    if (typeof chain.alias_authority !== "string" || chain.alias_authority.length === 0) throw new TypeError("chain.alias_authority is required");
+  }
+
+  private validateBalancesParams(
+    ftSymbols?: string[],
+    nftContract?: ZeosLinkBalanceFilter,
+    atContract?: ZeosLinkBalanceFilter,
+  ): void {
+    if (ftSymbols !== undefined && (!Array.isArray(ftSymbols) || ftSymbols.some((sym) => typeof sym !== "string"))) {
+      throw new TypeError("balances() ftSymbols must be an array of strings");
+    }
+    if (nftContract !== undefined && typeof nftContract !== "string") {
+      throw new TypeError("balances() nftContract must be a string");
+    }
+    if (atContract !== undefined && typeof atContract !== "string") {
+      throw new TypeError("balances() atContract must be a string");
+    }
   }
 }
 

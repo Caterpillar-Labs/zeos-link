@@ -74,6 +74,38 @@ describe("ZSession", () => {
     await expect(promise).rejects.toBeInstanceOf(ZeosLinkProtocolError);
   });
 
+  it("routes id-less server error frames to the only pending request", async () => {
+    const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
+    const ws = await login(session);
+
+    const promise = session.allBalances();
+    await flushMicrotasks();
+    ws.receive({ status: "error", error: "rate limited" });
+
+    await expect(promise).rejects.toMatchObject({ message: "rate limited" });
+  });
+
+  it("sends balances params in the server-supported shape", async () => {
+    const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
+    const ws = await login(session);
+
+    const promise = session.balances(["4,EOS", "8,CLOAK"], "atomicassets", "theauthcontr");
+    await flushMicrotasks();
+
+    const sent = JSON.parse(ws.sent.at(-1)!);
+    expect(sent).toMatchObject({
+      request: "balances",
+      params: {
+        ft_symbols: ["4,EOS", "8,CLOAK"],
+        nft_contract: "atomicassets",
+        at_contract: "theauthcontr",
+      },
+    });
+
+    ws.receive({ id: sent.id, status: "success", result: { fts: ["0 4,EOS"], nfts: [], ats: { spent: [], unspent: [] } } });
+    await expect(promise).resolves.toMatchObject({ fts: ["0 4,EOS"] });
+  });
+
   it("returns successful transaction responses", async () => {
     const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
     const ws = await login(session);

@@ -62,7 +62,7 @@ export interface ZeosLinkBalancesResult {
   [key: string]: unknown;
 }
 
-export type ZeosLinkBalanceFilter = string | Record<string, unknown>;
+export type ZeosLinkBalanceFilter = string;
 
 export interface ZeosLinkTransactResult {
   id?: number;
