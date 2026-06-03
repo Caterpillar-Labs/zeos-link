@@ -21,7 +21,7 @@ export class ZeosLinkTimeoutError extends ZeosLinkError {
 }
 
 export class ZeosLinkProtocolError extends ZeosLinkError {
-  readonly frame?: ZeosLinkWsFrame;
+  readonly frame: ZeosLinkWsFrame | undefined;
 
   constructor(message: string, frame?: ZeosLinkWsFrame) {
     super(message);

@@ -17,26 +17,6 @@ This package provides one canonical SDK boundary:
 - expose a documented error contract
 - build several consumption targets from one TypeScript source
 
-## What this SDK is not
-
-This SDK is **not** a general EOSIO wallet abstraction.
-
-It does **not** support native Anchor/WharfKit transaction shapes such as:
-
-```ts
-session.transact({ actions: [...] })
-```
-
-That belongs to native wallet sessions, not ZEOS Link.
-
-For ZEOS Link / CLOAK-style private transactions, use:
-
-```ts
-session.transact(zactions)
-```
-
-where `zactions` is an array of ZEOS Link private action payloads.
-
 ## Installation
 
 ```bash
