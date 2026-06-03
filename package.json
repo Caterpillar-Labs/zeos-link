@@ -1,0 +1,65 @@
+{
+  "name": "zeos-link",
+  "version": "0.1.0",
+  "description": "Browser SDK for connecting web apps to the local ZEOS Link WebSocket service.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Caterpillar Labs",
+  "homepage": "https://github.com/Caterpillar-Labs/zeos-link#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Caterpillar-Labs/zeos-link.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Caterpillar-Labs/zeos-link/issues"
+  },
+  "keywords": [
+    "zeos",
+    "zeos-link",
+    "cloak",
+    "eosio",
+    "antelope",
+    "privacy",
+    "wallet",
+    "websocket",
+    "sdk"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "browser": "./dist/zeos-link.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    },
+    "./browser": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/zeos-link.js"
+    },
+    "./global": "./dist/zeos-link.global.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "clean": "rm -rf dist coverage",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run clean && npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  }
+}
