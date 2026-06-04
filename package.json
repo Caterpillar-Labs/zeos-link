@@ -1,6 +1,6 @@
 {
   "name": "zeos-link",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Browser SDK for connecting web apps to the local ZEOS Link WebSocket service.",
   "type": "module",
   "license": "MIT",
