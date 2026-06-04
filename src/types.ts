@@ -1,72 +1,58 @@
 /**
  * Public SDK types for zeos-link.
  *
- * These types intentionally describe the ZEOS Link browser/WebSocket protocol only.
- * They do not depend on React, WharfKit, Anchor, EOSIO libraries, or any app-specific
- * wallet/session abstractions.
+ * These types intentionally describe the CLOAK / ZEOS Link browser-WebSocket
+ * protocol only. They do not depend on React, WharfKit, Anchor, EOSIO libraries,
+ * or app-specific wallet/session abstractions.
  */
 
-export const DEFAULT_ZEOS_LINK_URL = "wss://127.0.0.1:9367" as const;
+export const DEFAULT_URL = "wss://127.0.0.1:9367" as const;
 
-export type ZeosLinkStatus = "success" | "error" | string;
-
-export type ZeosLinkJsonPrimitive = string | number | boolean | null;
-export type ZeosLinkJsonValue =
-  | ZeosLinkJsonPrimitive
-  | ZeosLinkJsonValue[]
-  | { [key: string]: ZeosLinkJsonValue | undefined };
+export type Status = "success" | "error" | string;
 
 /** Chain parameters required by the ZEOS Link login/transact protocol. */
-export interface ZeosLinkChainParams {
+export interface ChainParams {
   chain_id: string;
   protocol_contract: string;
   vault_contract: string;
   alias_authority: string;
 }
 
-/** ZEOS/CLOAK private action payload. */
-export interface ZeosLinkZAction {
-  name: string;
-  data: Record<string, unknown>;
-}
-
-export interface ZeosLinkRequestOptions {
+export interface RequestOptions {
   timeoutMs?: number;
 }
 
-export interface ZSessionOptions {
+export interface SessionOptions {
   /**
    * Optional WebSocket constructor override.
    * Useful for tests or non-browser runtimes that provide a compatible WebSocket implementation.
    */
-  WebSocket?: ZeosLinkWebSocketConstructor;
+  WebSocket?: WebSocketConstructorLike;
 }
 
-export interface ZeosLinkLoginResult {
+export interface LoginResult {
   id?: number;
-  status: ZeosLinkStatus;
+  status: Status;
   result?: unknown;
   error?: string;
   detail?: unknown;
 }
 
-export interface ZeosLinkAuthTokenBundle {
+export interface AuthTokenBundle {
   spent: string[];
   unspent: string[];
 }
 
-export interface ZeosLinkBalancesResult {
+export interface BalancesResult {
   fts?: string[];
   nfts?: unknown[] | string[];
-  ats?: ZeosLinkAuthTokenBundle | string[];
+  ats?: AuthTokenBundle | string[];
   [key: string]: unknown;
 }
 
-export type ZeosLinkBalanceFilter = string;
-
-export interface ZeosLinkTransactResult {
+export interface TransactResult {
   id?: number;
-  status: ZeosLinkStatus;
+  status: Status;
   result?: unknown;
   response?: unknown;
   error?: string;
@@ -75,15 +61,105 @@ export interface ZeosLinkTransactResult {
   [key: string]: unknown;
 }
 
-export interface ZeosLinkRequestFrame {
+/**
+ * A high-level CLOAK/ZEOS private action.
+ *
+ * These are developer-facing actions. For authenticate.actions[].data, pass normal
+ * unpacked EOSIO JSON action data. The CLOAK wallet packs it to ABI hex internally.
+ */
+export type ZAction =
+  | MintAction
+  | SpendAction
+  | AuthenticateAction
+  | PublishNotesAction
+  | WithdrawAction;
+
+export interface MintAction {
+  name: "mint";
+  data: {
+    /** "$SELF" or a shielded address. */
+    to: string;
+    /** Token/NFT/auth-token contract account. */
+    contract: string;
+    /** FT: "10.0000 EOS"; NFT: "123456789"; auth token mint: "0". */
+    quantity: string;
+    memo: string;
+    /** EOSIO sender account that funded the protocol asset buffer. */
+    from: string;
+    publish_note: boolean;
+  };
+}
+
+export interface SpendAction {
+  name: "spend";
+  data: {
+    /** Token or NFT contract account. */
+    contract: string;
+    /** "$SELF" or shielded address for change. */
+    change_to: string;
+    publish_change_note: boolean;
+    to: Array<{
+      /** "$SELF", shielded address, EOSIO account, or 64-char auth/vault recipient hash. */
+      to: string;
+      /** FT: "10.0000 EOS"; NFT: "123456789". */
+      quantity: string;
+      memo: string;
+      publish_note: boolean;
+    }>;
+  };
+}
+
+export interface AuthenticateAction {
+  name: "authenticate";
+  data: {
+    /** "$AUTH0".."$AUTH9" from same transaction, or 64-char auth-token commitment hex. */
+    auth_token: string;
+    /** Whether the auth token should be burned/consumed. */
+    burn: boolean;
+    /**
+     * EOSIO actions authorized privately by the auth token.
+     *
+     * data is normal unpacked EOSIO JSON action data, exactly like native EOSIO wallets accept.
+     * The CLOAK wallet packs this data using the chain ABI before Rust transaction resolution.
+     */
+    actions: Array<{
+      account: string;
+      name: string;
+      authorization: string[];
+      data: Record<string, unknown>;
+    }>;
+  };
+}
+
+export interface PublishNotesAction {
+  name: "publishnotes";
+  data: {
+    notes: string[];
+  };
+}
+
+export interface WithdrawAction {
+  name: "withdraw";
+  data: {
+    /** Token or NFT contract account. */
+    contract: string;
+    /** FT: "10.0000 EOS"; NFT: "123456789". */
+    quantity: string;
+    memo: string;
+    /** Unshielded EOSIO recipient account. */
+    to: string;
+  };
+}
+
+export interface RequestFrame {
   id: number;
   request: string;
   params: unknown;
 }
 
-export interface ZeosLinkWsFrame {
+export interface WsFrame {
   id?: number;
-  status?: ZeosLinkStatus;
+  status?: Status;
   result?: unknown;
   error?: string;
   detail?: unknown;
@@ -92,24 +168,24 @@ export interface ZeosLinkWsFrame {
   [key: string]: unknown;
 }
 
-export interface ZeosLinkMessageEvent {
+export interface MessageEventLike {
   data: string;
 }
 
-export interface ZeosLinkWebSocket {
+export interface WebSocketLike {
   readonly readyState: number;
   send(data: string): void;
   close(): void;
   onopen: (() => void) | null;
-  onmessage: ((event: ZeosLinkMessageEvent) => void) | null;
+  onmessage: ((event: MessageEventLike) => void) | null;
   onerror: (() => void) | null;
   onclose: (() => void) | null;
 }
 
-export interface ZeosLinkWebSocketConstructor {
+export interface WebSocketConstructorLike {
   readonly OPEN: number;
   readonly CONNECTING: number;
   readonly CLOSING: number;
   readonly CLOSED: number;
-  new (url: string): ZeosLinkWebSocket;
+  new (url: string): WebSocketLike;
 }

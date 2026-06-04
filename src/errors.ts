@@ -1,15 +1,15 @@
-import type { ZeosLinkWsFrame } from "./types";
+import type { WsFrame } from "./types";
 
-export class ZeosLinkError extends Error {
+export class ZError extends Error {
   constructor(message: string) {
     super(message);
     this.name = new.target.name;
   }
 }
 
-export class ZeosLinkConnectionError extends ZeosLinkError {}
+export class ConnectionError extends ZError {}
 
-export class ZeosLinkTimeoutError extends ZeosLinkError {
+export class TimeoutError extends ZError {
   readonly request: string;
   readonly timeoutMs: number;
 
@@ -20,16 +20,16 @@ export class ZeosLinkTimeoutError extends ZeosLinkError {
   }
 }
 
-export class ZeosLinkProtocolError extends ZeosLinkError {
-  readonly frame: ZeosLinkWsFrame | undefined;
+export class ProtocolError extends ZError {
+  readonly frame: WsFrame | undefined;
 
-  constructor(message: string, frame?: ZeosLinkWsFrame) {
+  constructor(message: string, frame?: WsFrame) {
     super(message);
     this.frame = frame;
   }
 }
 
-export class ZeosLinkSendError extends ZeosLinkError {
+export class SendError extends ZError {
   readonly cause: unknown;
 
   constructor(cause: unknown) {

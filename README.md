@@ -2,7 +2,7 @@
 
 Browser SDK for connecting web apps to the local **CLOAK / ZEOS Link** wallet service.
 
-`zeos-link` is a tiny TypeScript SDK that talks to the CLOAK desktop wallet over a local secure WebSocket connection. It lets a web app request login approval, query private wallet balances, and submit shielded ZEOS actions for wallet-side signing/publishing.
+`zeos-link` is a tiny TypeScript SDK that talks to the CLOAK desktop wallet over a local secure WebSocket connection. It lets a web app request login approval, query private wallet balances, and submit shielded ZEOS actions for wallet-side proving, signing, and publishing.
 
 The default connection target is:
 
@@ -14,23 +14,23 @@ This package is intentionally small. It is **not** a general EOSIO wallet SDK, n
 
 ---
 
-## TL;DR for humans and AI agents
+## TL;DR
 
 Use this package when a web app wants to support the **CLOAK wallet**.
 
-Core flow:
-
 ```ts
-import ZSession from "zeos-link";
+import ZSession, { type ChainParams, type ZAction } from "zeos-link";
 
 const session = new ZSession();
 
-const login = await session.login({
-  chain_id: "...",
-  protocol_contract: "thezeosproto",
+const chain: ChainParams = {
+  chain_id: "aca376f206b8fc25a6ed44dbdc66547c36c6c33e3a119ffbeaef943642f0e906",
+  protocol_contract: "zeos4privacy",
   vault_contract: "thezeosvault",
   alias_authority: "thezeosalias@public",
-});
+};
+
+const login = await session.login(chain);
 
 if (!login) {
   // User declined, wallet network mismatch, or wallet rejected login.
@@ -39,32 +39,49 @@ if (!login) {
 
 const balances = await session.allBalances(true, true, true);
 
-const tx = await session.transact(
-  [
-    {
-      name: "transfer",
-      data: {
-        // protocol-specific shielded action data
-      },
+const zactions: ZAction[] = [
+  {
+    name: "spend",
+    data: {
+      contract: "eosio.token",
+      change_to: "$SELF",
+      publish_change_note: true,
+      to: [
+        {
+          to: "alice",
+          quantity: "1.0000 EOS",
+          memo: "hello",
+          publish_note: true,
+        },
+      ],
     },
-  ],
-  true,
-  true,
-);
+  },
+];
+
+const result = await session.transact(zactions, true, true, {
+  timeoutMs: 120_000,
+});
+
+if (result.status === "error") {
+  console.error(result.error);
+  return;
+}
+
+console.log(result);
 ```
 
 Important:
 
-- The CLOAK wallet must be running locally.
-- The wallet exposes a secure WebSocket server on `wss://127.0.0.1:9367`.
-- Login opens a native wallet approval dialog.
-- Balance requests may open a native wallet approval dialog.
-- Transactions open a native wallet signature dialog.
-- `login()` returns `null` for expected wallet rejection/decline.
-- Balance protocol errors throw.
-- `transact()` returns successful transaction responses and structured transaction error responses.
-- Network/socket/timeout failures throw.
-- This SDK only supports ZEOS/CLOAK shielded `zactions`, **not** Anchor/WharfKit `{ actions: [...] }` transactions.
+* The CLOAK wallet must be running locally.
+* The wallet exposes a secure WebSocket server on `wss://127.0.0.1:9367`.
+* Login opens a native wallet approval dialog.
+* Balance requests may open a native wallet approval dialog.
+* Transactions open a native wallet signature dialog.
+* `login()` returns `null` for expected wallet rejection/decline.
+* Balance protocol errors throw.
+* `transact()` returns successful transaction responses and structured transaction error responses.
+* Network/socket/timeout failures throw.
+* This SDK only supports ZEOS/CLOAK shielded `zactions`, **not** Anchor/WharfKit `{ actions: [...] }` transactions.
 
 ---
 
@@ -88,6 +105,22 @@ Named import also works:
 
 ```ts
 import { ZSession } from "zeos-link";
+```
+
+Import types:
+
+```ts
+import type {
+  ChainParams,
+  ZAction,
+  MintAction,
+  SpendAction,
+  AuthenticateAction,
+  PublishNotesAction,
+  WithdrawAction,
+  BalancesResult,
+  TransactResult,
+} from "zeos-link";
 ```
 
 ---
@@ -131,13 +164,14 @@ Prefer the ESM build for modern apps.
 
 `zeos-link` handles:
 
-- opening/reusing a WebSocket connection to the local CLOAK wallet,
-- sending request frames with unique request ids,
-- correlating wallet replies back to the pending request,
-- timing out stale requests,
-- converting expected login rejection into `null`,
-- throwing typed protocol/connection/timeout errors where appropriate,
-- handling known wallet-server quirks such as id-less rate-limit errors and uncorrelated transaction error frames.
+* opening/reusing a WebSocket connection to the local CLOAK wallet,
+* sending request frames with unique request ids,
+* correlating wallet replies back to the pending request,
+* timing out stale requests,
+* converting expected login rejection into `null`,
+* throwing typed protocol/connection/timeout errors where appropriate,
+* routing id-less server errors such as rate-limit errors to the pending request when safe,
+* handling known wallet-server behavior such as uncorrelated transaction error frames.
 
 ---
 
@@ -145,14 +179,14 @@ Prefer the ESM build for modern apps.
 
 This SDK does **not**:
 
-- manage React state,
-- store wallet sessions in localStorage,
-- choose the app's active network,
-- format balances for UI,
-- resolve token icons,
-- support Anchor/WharfKit native EOSIO transactions,
-- validate your dapp's business rules,
-- replace server-side authorization or transaction validation.
+* manage React state,
+* store wallet sessions in localStorage,
+* choose the app's active network,
+* format balances for UI,
+* resolve token icons,
+* support Anchor/WharfKit/native EOSIO transaction shapes,
+* validate your dapp's business rules,
+* replace server-side authorization or transaction validation.
 
 Keep those responsibilities in your app.
 
@@ -216,7 +250,7 @@ Some low-level server errors may not include an id, for example rate limiting or
 
 ---
 
-## Supported requests
+## Supported protocol requests
 
 The CLOAK wallet currently supports these request names:
 
@@ -238,6 +272,45 @@ Unknown requests receive:
 
 ---
 
+## Public API
+
+```ts
+export class ZSession {
+  constructor(url?: string, options?: SessionOptions);
+
+  login(chain: ChainParams, onClose?: () => void): Promise<LoginResult | null>;
+  logout(): void;
+
+  isConnected(): boolean;
+  handle(): string | null;
+
+  allBalances(
+    ft?: boolean,
+    nft?: boolean,
+    at?: boolean,
+    opts?: RequestOptions
+  ): Promise<BalancesResult>;
+
+  balances(
+    ftSymbols?: string[],
+    nftContract?: string,
+    atContract?: string,
+    opts?: RequestOptions
+  ): Promise<BalancesResult>;
+
+  transact(
+    zactions: ZAction[],
+    addFee?: boolean,
+    publishFeeNote?: boolean,
+    opts?: RequestOptions
+  ): Promise<TransactResult>;
+}
+
+export default ZSession;
+```
+
+---
+
 ## Login
 
 ### API
@@ -250,20 +323,20 @@ const result = await session.login(chain, onClose);
 
 ```ts
 login(
-  chain: ZeosLinkChainParams,
+  chain: ChainParams,
   onClose?: () => void
-): Promise<ZeosLinkLoginResult | null>
+): Promise<LoginResult | null>
 ```
 
 ### Chain params
 
 ```ts
-type ZeosLinkChainParams = {
+interface ChainParams {
   chain_id: string;
   protocol_contract: string;
   vault_contract: string;
   alias_authority: string;
-};
+}
 ```
 
 Example:
@@ -271,7 +344,7 @@ Example:
 ```ts
 const login = await session.login({
   chain_id: "aca376f206b8fc25a6ed44dbdc66547c36c6c33e3a119ffbeaef943642f0e906",
-  protocol_contract: "thezeosproto",
+  protocol_contract: "zeos4privacy",
   vault_contract: "thezeosvault",
   alias_authority: "thezeosalias@public",
 });
@@ -381,8 +454,8 @@ allBalances(
   ft?: boolean,
   nft?: boolean,
   at?: boolean,
-  opts?: ZeosLinkRequestOptions
-): Promise<ZeosLinkBalancesResult>
+  opts?: RequestOptions
+): Promise<BalancesResult>
 ```
 
 ### Request params
@@ -413,14 +486,14 @@ at  = authentication tokens
 Typical result:
 
 ```ts
-type ZeosLinkBalancesResult = {
+interface BalancesResult {
   fts?: string[];
-  nfts?: unknown[];
+  nfts?: unknown[] | string[];
   ats?: {
     spent: string[];
     unspent: string[];
-  };
-};
+  } | string[];
+}
 ```
 
 Example:
@@ -456,8 +529,8 @@ balances(
   ftSymbols?: string[],
   nftContract?: string,
   atContract?: string,
-  opts?: ZeosLinkRequestOptions
-): Promise<ZeosLinkBalancesResult>
+  opts?: RequestOptions
+): Promise<BalancesResult>
 ```
 
 ### Request params
@@ -517,37 +590,27 @@ const result = await session.transact(zactions);
 
 ```ts
 transact(
-  zactions: ZeosLinkZAction[],
+  zactions: ZAction[],
   addFee?: boolean,
   publishFeeNote?: boolean,
-  opts?: ZeosLinkRequestOptions
-): Promise<ZeosLinkTransactResult>
+  opts?: RequestOptions
+): Promise<TransactResult>
 ```
 
-### ZAction shape
+### Defaults
 
-```ts
-type ZeosLinkZAction = {
-  name: string;
-  data: Record<string, unknown>;
-};
+```txt
+addFee         true
+publishFeeNote true
+timeoutMs      60000
 ```
 
-Example:
+For proof-heavy flows, use a longer timeout:
 
 ```ts
-const result = await session.transact(
-  [
-    {
-      name: "transfer",
-      data: {
-        // shielded action payload
-      },
-    },
-  ],
-  true,
-  true,
-);
+const result = await session.transact(zactions, true, true, {
+  timeoutMs: 120_000,
+});
 ```
 
 The SDK sends a `transact` request with the active login chain params:
@@ -567,26 +630,6 @@ The SDK sends a `transact` request with the active login chain params:
 }
 ```
 
-### `addFee`
-
-When `true`, the wallet is asked to include the required protocol fee behavior.
-
-Default:
-
-```txt
-true
-```
-
-### `publishFeeNote`
-
-When `true`, the wallet is asked to publish the fee note when relevant.
-
-Default:
-
-```txt
-true
-```
-
 ### Important: this is not Anchor / WharfKit
 
 This is valid for CLOAK / ZEOS Link:
@@ -594,8 +637,20 @@ This is valid for CLOAK / ZEOS Link:
 ```ts
 await session.transact([
   {
-    name: "transfer",
-    data: {},
+    name: "spend",
+    data: {
+      contract: "eosio.token",
+      change_to: "$SELF",
+      publish_change_note: true,
+      to: [
+        {
+          to: "alice",
+          quantity: "1.0000 EOS",
+          memo: "",
+          publish_note: true,
+        },
+      ],
+    },
   },
 ]);
 ```
@@ -618,40 +673,479 @@ await session.transact({
 
 ---
 
+## ZActions guide
+
+`zactions` are the high-level private actions sent to the CLOAK wallet through:
+
+```ts
+await session.transact(zactions);
+```
+
+The public TypeScript type is:
+
+```ts
+type ZAction =
+  | MintAction
+  | SpendAction
+  | AuthenticateAction
+  | PublishNotesAction
+  | WithdrawAction;
+```
+
+The wallet receives these high-level JSON descriptions, resolves them against the wallet state, creates the necessary zero-knowledge proofs, signs/publishes the resulting protocol transaction, and returns a transaction result.
+
+The supported action names are:
+
+```txt
+mint
+spend
+authenticate
+publishnotes
+withdraw
+```
+
+---
+
+## Common string formats
+
+```txt
+EOSIO account/name:
+  "eosio.token"
+  "atomicassets"
+  "mycontract"
+
+Authorization:
+  "actor@permission"
+  "mycontract@active"
+
+FT quantity:
+  "10.0000 EOS"
+
+NFT quantity:
+  "123456789"
+
+Symbol filter:
+  "4,EOS"
+
+Shielded address:
+  "za1..."
+
+Self placeholder:
+  "$SELF"
+
+Auth token placeholder:
+  "$AUTH0" ... "$AUTH9"
+
+Existing auth token commitment:
+  64-char hex string
+```
+
+NFTs use symbol raw value `0`, conceptually equivalent to symbol string `"0,"`. Since normal asset strings do not represent that nicely, ZEOS/CLOAK represents NFT quantities as pure integer asset-id strings, for example:
+
+```txt
+"123456789"
+```
+
+---
+
+## Placeholders
+
+`$SELF` means the current wallet's default shielded address.
+
+`$AUTH0` ... `$AUTH9` refer to auth tokens minted earlier in the same transaction. This lets a transaction mint an auth token and immediately use it in a later `authenticate` action without the frontend knowing the final commitment beforehand.
+
+Memos may also contain:
+
+```txt
+$SELF
+$AUTH0 ... $AUTH9
+```
+
+The wallet resolves those placeholders during transaction construction.
+
+---
+
+## `mint`
+
+Creates a new shielded note.
+
+```ts
+const zactions: ZAction[] = [
+  {
+    name: "mint",
+    data: {
+      to: "$SELF",
+      contract: "eosio.token",
+      quantity: "10.0000 EOS",
+      memo: "",
+      from: "alice",
+      publish_note: true,
+    },
+  },
+];
+```
+
+Type shape:
+
+```ts
+interface MintAction {
+  name: "mint";
+  data: {
+    to: string;
+    contract: string;
+    quantity: string;
+    memo: string;
+    from: string;
+    publish_note: boolean;
+  };
+}
+```
+
+Field notes:
+
+```txt
+to:
+  "$SELF" or shielded address
+
+contract:
+  token/NFT/auth-token contract account
+
+quantity:
+  FT: "10.0000 EOS"
+  NFT: "123456789"
+  auth-token mint: "0"
+
+from:
+  EOSIO account that funded the protocol asset buffer
+
+publish_note:
+  whether the encrypted note should be published for recipient discovery
+```
+
+Auth token minting is a special case of `mint` where `quantity` is `"0"`.
+
+For auth token mints, `from` must equal `contract`. The wallet/protocol rejects auth token mints where the auth token source account and contract do not match.
+
+---
+
+## `spend`
+
+Spends existing shielded notes to shielded recipients, unshielded EOSIO accounts, or both.
+
+```ts
+const zactions: ZAction[] = [
+  {
+    name: "spend",
+    data: {
+      contract: "eosio.token",
+      change_to: "$SELF",
+      publish_change_note: true,
+      to: [
+        {
+          to: "bob",
+          quantity: "5.0000 EOS",
+          memo: "public output",
+          publish_note: true,
+        },
+        {
+          to: "za1...",
+          quantity: "2.0000 EOS",
+          memo: "shielded output",
+          publish_note: true,
+        },
+      ],
+    },
+  },
+];
+```
+
+Type shape:
+
+```ts
+interface SpendAction {
+  name: "spend";
+  data: {
+    contract: string;
+    change_to: string;
+    publish_change_note: boolean;
+    to: Array<{
+      to: string;
+      quantity: string;
+      memo: string;
+      publish_note: boolean;
+    }>;
+  };
+}
+```
+
+Recipient rules:
+
+```txt
+"$SELF":
+  current wallet default shielded address
+
+"za1...":
+  shielded address
+
+<=12-char EOSIO name:
+  unshielded EOSIO account recipient
+
+64-char hex string:
+  auth/vault recipient hash
+```
+
+FT spend quantity example:
+
+```txt
+"10.0000 EOS"
+```
+
+NFT spend quantity example:
+
+```txt
+"123456789"
+```
+
+---
+
+## `authenticate`
+
+Privately authorizes EOSIO actions using an auth token.
+
+This is the key dapp-integration action. It lets a dapp define private actions that are authorized by a ZEOS auth token instead of a normal public account signature.
+
+```ts
+const zactions: ZAction[] = [
+  {
+    name: "authenticate",
+    data: {
+      auth_token: "$AUTH0",
+      burn: true,
+      actions: [
+        {
+          account: "mycontract",
+          name: "claimauctiop",
+          authorization: ["mycontract@active"],
+          data: {
+            round: 7,
+          },
+        },
+      ],
+    },
+  },
+];
+```
+
+Type shape:
+
+```ts
+interface AuthenticateAction {
+  name: "authenticate";
+  data: {
+    auth_token: string;
+    burn: boolean;
+    actions: Array<{
+      account: string;
+      name: string;
+      authorization: string[];
+      data: Record<string, unknown>;
+    }>;
+  };
+}
+```
+
+Important: `actions[].data` is normal unpacked EOSIO JSON action data, exactly like native EOSIO wallets accept.
+
+Do **not** pass packed hex here.
+
+Good:
+
+```ts
+data: { round: 7 }
+```
+
+Bad:
+
+```ts
+data: "deadbeef"
+```
+
+The CLOAK wallet packs this JSON action data internally using the chain ABI before the Rust transaction resolver receives it.
+
+### Auth token references
+
+`auth_token` may be:
+
+```txt
+"$AUTH0" ... "$AUTH9"
+```
+
+for auth tokens minted earlier in the same transaction, or:
+
+```txt
+64-char hex commitment
+```
+
+for an existing unspent auth token.
+
+### Private dapp action pattern
+
+A dapp can expose a public action and a private/authenticated variant.
+
+Example:
+
+```cpp
+ACTION claimauction(const eosio::name& owner, const uint32_t& round);
+ACTION claimauctiop(const uint32_t& round);
+ZAUTHENTICATE(ZACTION(claimauctiop))
+```
+
+The private frontend sends:
+
+```ts
+const zactions: ZAction[] = [
+  {
+    name: "authenticate",
+    data: {
+      auth_token: String(authTokenCommitment),
+      burn: true,
+      actions: [
+        {
+          account: "mycontract",
+          name: "claimauctiop",
+          authorization: ["mycontract@active"],
+          data: { round },
+        },
+      ],
+    },
+  },
+];
+```
+
+The protocol verifies the auth proof, then notifies the authenticated contract. The dapp contract reads the authenticated action buffer and executes allowed private actions.
+
+### Troubleshooting `authenticate`
+
+`authenticate` can fail if:
+
+```txt
+- auth_token is invalid, spent, or unavailable
+- burn is wrong for the intended flow
+- nested account/name is wrong
+- nested action is not in the dapp contract ABI
+- nested data does not match the ABI
+- chain RPC cannot fetch ABI / pack action data
+- the dapp contract does not allow the private action in its authenticate handler
+```
+
+---
+
+## `publishnotes`
+
+Publishes encrypted note ciphertexts.
+
+```ts
+const zactions: ZAction[] = [
+  {
+    name: "publishnotes",
+    data: {
+      notes: ["...base64-note-ciphertext..."],
+    },
+  },
+];
+```
+
+Type shape:
+
+```ts
+interface PublishNotesAction {
+  name: "publishnotes";
+  data: {
+    notes: string[];
+  };
+}
+```
+
+Most frontend apps should not invent these strings manually. They usually come from wallet/protocol flows.
+
+---
+
+## `withdraw`
+
+Drains assets from the shielded protocol contract's asset buffer to an unshielded EOSIO account.
+
+This is not merely "withdraw from privacy wallet." It is useful in complex private DeFi flows where the shielded protocol contract temporarily acts as the asset-holding account and receives assets that should be sent out again instead of immediately being minted into shielded UTXOs.
+
+```ts
+const zactions: ZAction[] = [
+  {
+    name: "withdraw",
+    data: {
+      contract: "eosio.token",
+      quantity: "10.0000 EOS",
+      memo: "settlement",
+      to: "alice",
+    },
+  },
+];
+```
+
+Type shape:
+
+```ts
+interface WithdrawAction {
+  name: "withdraw";
+  data: {
+    contract: string;
+    quantity: string;
+    memo: string;
+    to: string;
+  };
+}
+```
+
+FT quantity example:
+
+```txt
+"10.0000 EOS"
+```
+
+NFT quantity example:
+
+```txt
+"123456789"
+```
+
+The protocol checks the asset buffer, matches the requested contract/symbol/value, and sends the asset out from the protocol contract to `to`.
+
+---
+
 ## Request options
 
 Most request methods accept:
 
 ```ts
-type ZeosLinkRequestOptions = {
+interface RequestOptions {
   timeoutMs?: number;
-};
+}
 ```
 
 Examples:
 
 ```ts
-await session.login(chain, undefined, {
-  timeoutMs: 30000,
-});
-```
-
-For methods that expose `opts`:
-
-```ts
 await session.allBalances(true, true, true, {
-  timeoutMs: 30000,
+  timeoutMs: 30_000,
 });
 
 await session.transact(zactions, true, true, {
-  timeoutMs: 120000,
+  timeoutMs: 120_000,
 });
 ```
 
 Recommended defaults:
 
 ```txt
-login        30s
+login        30s fixed internally
 balances     15s
 transact     60s or longer for proof-generation-heavy flows
 ```
@@ -668,7 +1162,7 @@ This is the most important API contract.
 
 ```txt
 login approved
-  -> resolves ZeosLinkLoginResult
+  -> resolves LoginResult
 
 user declined login
   -> resolves null
@@ -704,10 +1198,10 @@ try {
 
 ```txt
 balance request approved
-  -> resolves ZeosLinkBalancesResult
+  -> resolves BalancesResult
 
 wallet protocol error
-  -> throws ZeosLinkProtocolError
+  -> throws ProtocolError
 
 rate limited / message too large
   -> throws protocol-style error
@@ -730,10 +1224,10 @@ try {
 
 ```txt
 transaction approved and processed
-  -> resolves ZeosLinkTransactResult with status: "success"
+  -> resolves TransactResult with status: "success"
 
 transaction rejected/failed at wallet/protocol level
-  -> resolves ZeosLinkTransactResult with status: "error"
+  -> resolves TransactResult with status: "error"
 
 uncorrelated transaction error frame from wallet
   -> resolves structured transaction error result
@@ -772,22 +1266,27 @@ Recommended app-side helper:
 
 ```ts
 import {
-  ZeosLinkProtocolError,
-  ZeosLinkTimeoutError,
-  ZeosLinkConnectionError,
+  ProtocolError,
+  TimeoutError,
+  ConnectionError,
+  SendError,
 } from "zeos-link";
 
-function describeZeosLinkError(err: unknown): string {
-  if (err instanceof ZeosLinkTimeoutError) {
+function describeCloakError(err: unknown): string {
+  if (err instanceof TimeoutError) {
     return "The CLOAK wallet did not respond in time.";
   }
 
-  if (err instanceof ZeosLinkConnectionError) {
+  if (err instanceof ConnectionError) {
     return "Could not connect to the local CLOAK wallet.";
   }
 
-  if (err instanceof ZeosLinkProtocolError) {
+  if (err instanceof ProtocolError) {
     return err.message || "The CLOAK wallet rejected the request.";
+  }
+
+  if (err instanceof SendError) {
+    return err.message || "Could not send the request to the CLOAK wallet.";
   }
 
   if (err instanceof Error) {
@@ -804,7 +1303,7 @@ Then:
 try {
   const balances = await session.allBalances(true, true, true);
 } catch (err) {
-  notifyUser(describeZeosLinkError(err));
+  notifyUser(describeCloakError(err));
 }
 ```
 
@@ -812,13 +1311,14 @@ try {
 
 ## Detecting whether CLOAK wallet is available
 
-The simplest check is attempting login or opening a session.
+The simplest check is attempting login.
 
 ```ts
 const session = new ZSession();
 
 try {
   const login = await session.login(chain);
+
   if (!login) {
     console.log("Wallet rejected login or user declined.");
   }
@@ -870,7 +1370,7 @@ After transaction:
 
 ```ts
 const result = await session.transact(zactions, true, true, {
-  timeoutMs: 120000,
+  timeoutMs: 120_000,
 });
 
 if (result.status === "error") {
@@ -949,7 +1449,7 @@ Good:
 
 ```html
 <script type="module">
-  import ZSession from "https://unpkg.com/zeos-link@0.1.0/dist/zeos-link.js";
+  import ZSession from "https://unpkg.com/zeos-link@0.2.0/dist/zeos-link.js";
 </script>
 ```
 
@@ -979,7 +1479,7 @@ You normally do not need this when using the SDK, but it is useful for debugging
   "request": "login",
   "params": {
     "chain_id": "aca376f206b8fc25a6ed44dbdc66547c36c6c33e3a119ffbeaef943642f0e906",
-    "protocol_contract": "thezeosproto",
+    "protocol_contract": "zeos4privacy",
     "vault_contract": "thezeosvault",
     "alias_authority": "thezeosalias@public"
   }
@@ -1059,8 +1559,20 @@ or:
     "publish_fee_note": true,
     "zactions": [
       {
-        "name": "transfer",
-        "data": {}
+        "name": "spend",
+        "data": {
+          "contract": "eosio.token",
+          "change_to": "$SELF",
+          "publish_change_note": true,
+          "to": [
+            {
+              "to": "alice",
+              "quantity": "1.0000 EOS",
+              "memo": "",
+              "publish_note": true
+            }
+          ]
+        }
       }
     ]
   }
@@ -1187,7 +1699,7 @@ npm publish
 Tag release:
 
 ```bash
-git tag v0.1.0
+git tag v0.2.0
 git push origin main --tags
 ```
 
@@ -1262,4 +1774,3 @@ boring
 ```
 
 Do not add app-specific concepts unless they are truly part of the CLOAK / ZEOS Link protocol.
-

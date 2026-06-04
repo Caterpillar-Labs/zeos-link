@@ -1,6 +1,6 @@
-import type { ZeosLinkMessageEvent, ZeosLinkWebSocket } from "../src/types";
+import type { MessageEventLike, WebSocketLike } from "../src/types";
 
-export class MockWebSocket implements ZeosLinkWebSocket {
+export class MockWebSocket implements WebSocketLike {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
   static readonly CLOSING = 2;
@@ -14,7 +14,7 @@ export class MockWebSocket implements ZeosLinkWebSocket {
   failSend = false;
 
   onopen: (() => void) | null = null;
-  onmessage: ((event: ZeosLinkMessageEvent) => void) | null = null;
+  onmessage: ((event: MessageEventLike) => void) | null = null;
   onerror: (() => void) | null = null;
   onclose: (() => void) | null = null;
 

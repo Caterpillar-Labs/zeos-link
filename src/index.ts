@@ -1,19 +1,18 @@
 import {
-  DEFAULT_ZEOS_LINK_URL,
-  type ZeosLinkBalanceFilter,
-  type ZeosLinkBalancesResult,
-  type ZeosLinkChainParams,
-  type ZeosLinkLoginResult,
-  type ZeosLinkRequestFrame,
-  type ZeosLinkRequestOptions,
-  type ZeosLinkTransactResult,
-  type ZeosLinkWebSocket,
-  type ZeosLinkWebSocketConstructor,
-  type ZeosLinkWsFrame,
-  type ZeosLinkZAction,
-  type ZSessionOptions,
+  DEFAULT_URL,
+  type BalancesResult,
+  type ChainParams,
+  type LoginResult,
+  type RequestFrame,
+  type RequestOptions,
+  type SessionOptions,
+  type TransactResult,
+  type WebSocketConstructorLike,
+  type WebSocketLike,
+  type WsFrame,
+  type ZAction,
 } from "./types";
-import { ZeosLinkConnectionError, ZeosLinkProtocolError, ZeosLinkSendError, ZeosLinkTimeoutError } from "./errors";
+import { ConnectionError, ProtocolError, SendError, TimeoutError } from "./errors";
 
 export * from "./types";
 export * from "./errors";
@@ -21,28 +20,30 @@ export * from "./errors";
 type PendingEntry = {
   request: string;
   resolveProtocolError: boolean;
-  resolve: (value: ZeosLinkWsFrame) => void;
+  resolve: (value: WsFrame) => void;
   reject: (error: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
 };
 
-type InternalSendOptions = ZeosLinkRequestOptions & {
+type InternalSendOptions = RequestOptions & {
   resolveProtocolError?: boolean;
 };
 
-function getDefaultWebSocketConstructor(): ZeosLinkWebSocketConstructor {
-  const WebSocketCtor = globalThis.WebSocket as unknown as ZeosLinkWebSocketConstructor | undefined;
+const ZACTION_NAMES = new Set(["mint", "spend", "authenticate", "publishnotes", "withdraw"]);
+
+function getDefaultWebSocketConstructor(): WebSocketConstructorLike {
+  const WebSocketCtor = globalThis.WebSocket as unknown as WebSocketConstructorLike | undefined;
   if (!WebSocketCtor) {
-    throw new ZeosLinkConnectionError("WebSocket is not available in this runtime");
+    throw new ConnectionError("WebSocket is not available in this runtime");
   }
   return WebSocketCtor;
 }
 
-function normalizeProtocolError(request: string, frame: ZeosLinkWsFrame): ZeosLinkProtocolError {
-  return new ZeosLinkProtocolError(frame.error || `${request} failed`, frame);
+function normalizeProtocolError(request: string, frame: WsFrame): ProtocolError {
+  return new ProtocolError(frame.error || `${request} failed`, frame);
 }
 
-function normalizeErrorFrame(request: string, frame: ZeosLinkWsFrame): ZeosLinkWsFrame {
+function normalizeErrorFrame(request: string, frame: WsFrame): WsFrame {
   return {
     ...frame,
     status: "error",
@@ -51,8 +52,12 @@ function normalizeErrorFrame(request: string, frame: ZeosLinkWsFrame): ZeosLinkW
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /**
- * Browser SDK client for the local ZEOS Link WebSocket service.
+ * Browser SDK client for the local CLOAK / ZEOS Link WebSocket service.
  *
  * ZSession is deliberately small: it opens a WebSocket, sends request frames with ids,
  * matches response frames, tracks the logged-in chain/handle, and exposes the ZEOS Link
@@ -61,18 +66,18 @@ function normalizeErrorFrame(request: string, frame: ZeosLinkWsFrame): ZeosLinkW
 export class ZSession {
   public readonly url: string;
 
-  private ws: ZeosLinkWebSocket | null;
-  private readonly WebSocketCtor: ZeosLinkWebSocketConstructor;
+  private ws: WebSocketLike | null;
+  private readonly WebSocketCtor: WebSocketConstructorLike;
   private opening: Promise<void> | null;
   private nextId: number;
   private pending: Map<number, PendingEntry>;
-  private chain: ZeosLinkChainParams | null;
+  private chain: ChainParams | null;
   private actor: string | null;
   private onCloseExternal: () => void;
   private isTransacting: boolean;
   private lastTransactRequestId: number | null;
 
-  constructor(url: string = DEFAULT_ZEOS_LINK_URL, options: ZSessionOptions = {}) {
+  constructor(url: string = DEFAULT_URL, options: SessionOptions = {}) {
     this.url = url;
     this.WebSocketCtor = options.WebSocket ?? getDefaultWebSocketConstructor();
     this.ws = null;
@@ -94,7 +99,7 @@ export class ZSession {
     return this.actor;
   }
 
-  async login(chain: ZeosLinkChainParams, closeCallback: () => void = () => {}): Promise<ZeosLinkLoginResult | null> {
+  async login(chain: ChainParams, closeCallback: () => void = () => {}): Promise<LoginResult | null> {
     this.validateChainParams(chain);
     await this.ensureOpen(closeCallback);
 
@@ -111,7 +116,7 @@ export class ZSession {
 
     this.chain = chain;
     this.actor = typeof res.result === "string" ? res.result : null;
-    return res as ZeosLinkLoginResult;
+    return res as LoginResult;
   }
 
   logout(): void {
@@ -124,31 +129,31 @@ export class ZSession {
       try {
         this.ws.close();
       } catch {
-        // Nothing useful to do here. logout() is best-effort cleanup.
+        // logout() is best-effort cleanup.
       }
       this.ws = null;
     }
 
-    this.rejectAllPending(new ZeosLinkConnectionError("Logged out"));
+    this.rejectAllPending(new ConnectionError("Logged out"));
   }
 
   async allBalances(
     ft: boolean = true,
     nft: boolean = true,
     at: boolean = true,
-    opts: ZeosLinkRequestOptions = {},
-  ): Promise<ZeosLinkBalancesResult> {
+    opts: RequestOptions = {},
+  ): Promise<BalancesResult> {
     await this.ensureOpen(this.onCloseExternal);
     const res = await this.send("all_balances", { ft, nft, at }, { timeoutMs: opts.timeoutMs ?? 15_000 });
-    return (res.result ?? {}) as ZeosLinkBalancesResult;
+    return (res.result ?? {}) as BalancesResult;
   }
 
   async balances(
     ftSymbols?: string[],
-    nftContract?: ZeosLinkBalanceFilter,
-    atContract?: ZeosLinkBalanceFilter,
-    opts: ZeosLinkRequestOptions = {},
-  ): Promise<ZeosLinkBalancesResult> {
+    nftContract?: string,
+    atContract?: string,
+    opts: RequestOptions = {},
+  ): Promise<BalancesResult> {
     this.validateBalancesParams(ftSymbols, nftContract, atContract);
     await this.ensureOpen(this.onCloseExternal);
     const res = await this.send(
@@ -160,17 +165,17 @@ export class ZSession {
       },
       { timeoutMs: opts.timeoutMs ?? 15_000 },
     );
-    return (res.result ?? {}) as ZeosLinkBalancesResult;
+    return (res.result ?? {}) as BalancesResult;
   }
 
   async transact(
-    zactions: ZeosLinkZAction[],
+    zactions: ZAction[],
     addFee: boolean = true,
     publishFeeNote: boolean = true,
-    opts: ZeosLinkRequestOptions = {},
-  ): Promise<ZeosLinkTransactResult> {
-    if (!this.chain) throw new ZeosLinkProtocolError("Not logged in");
-    if (!Array.isArray(zactions)) throw new TypeError("transact() expects an array of ZEOS Link zactions");
+    opts: RequestOptions = {},
+  ): Promise<TransactResult> {
+    if (!this.chain) throw new ProtocolError("Not logged in");
+    this.validateZActions(zactions);
 
     this.isTransacting = true;
     try {
@@ -191,7 +196,7 @@ export class ZSession {
           resolveProtocolError: true,
         },
       );
-      return res as ZeosLinkTransactResult;
+      return res as TransactResult;
     } finally {
       this.isTransacting = false;
     }
@@ -238,13 +243,13 @@ export class ZSession {
       };
 
       ws.onerror = () => {
-        const error = new ZeosLinkConnectionError("WebSocket error");
+        const error = new ConnectionError("WebSocket error");
         if (!opened) rejectOpening(error);
         this.rejectAllPending(error);
       };
 
       ws.onclose = () => {
-        const error = new ZeosLinkConnectionError(opened ? "WebSocket closed" : "Socket closed during connect");
+        const error = new ConnectionError(opened ? "WebSocket closed" : "Socket closed during connect");
         if (!opened) {
           rejectOpening(error);
         } else {
@@ -265,18 +270,18 @@ export class ZSession {
     return this.opening;
   }
 
-  private send(request: string, params: unknown, { timeoutMs = 15_000, resolveProtocolError = false }: InternalSendOptions = {}): Promise<ZeosLinkWsFrame> {
-    if (!this.isOpen()) return Promise.reject(new ZeosLinkConnectionError("Socket not open"));
+  private send(request: string, params: unknown, { timeoutMs = 15_000, resolveProtocolError = false }: InternalSendOptions = {}): Promise<WsFrame> {
+    if (!this.isOpen()) return Promise.reject(new ConnectionError("Socket not open"));
 
     const id = this.nextId++;
-    const frame: ZeosLinkRequestFrame = { id, request, params };
+    const frame: RequestFrame = { id, request, params };
     const payload = JSON.stringify(frame);
 
-    return new Promise<ZeosLinkWsFrame>((resolve, reject) => {
+    return new Promise<WsFrame>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         if (this.lastTransactRequestId === id) this.lastTransactRequestId = null;
-        reject(new ZeosLinkTimeoutError(request, timeoutMs));
+        reject(new TimeoutError(request, timeoutMs));
       }, timeoutMs);
 
       this.pending.set(id, {
@@ -295,15 +300,15 @@ export class ZSession {
         clearTimeout(timeout);
         this.pending.delete(id);
         if (this.lastTransactRequestId === id) this.lastTransactRequestId = null;
-        reject(new ZeosLinkSendError(err));
+        reject(new SendError(err));
       }
     });
   }
 
   private handleMessage(raw: string): void {
-    let msg: ZeosLinkWsFrame;
+    let msg: WsFrame;
     try {
-      msg = JSON.parse(raw) as ZeosLinkWsFrame;
+      msg = JSON.parse(raw) as WsFrame;
     } catch {
       return;
     }
@@ -332,10 +337,11 @@ export class ZSession {
     pending.reject(normalizeProtocolError(pending.request, msg));
   }
 
-  private handleUncorrelatedMessage(msg: ZeosLinkWsFrame): void {
+  private handleUncorrelatedMessage(msg: WsFrame): void {
     if (typeof msg.id !== "number" && msg.status === "error" && this.pending.size === 1) {
       const first = this.pending.entries().next().value;
       if (!first) return;
+
       const [pendingId, pending] = first;
       clearTimeout(pending.timeout);
       this.pending.delete(pendingId);
@@ -369,7 +375,7 @@ export class ZSession {
     this.lastTransactRequestId = null;
   }
 
-  private validateChainParams(chain: ZeosLinkChainParams): void {
+  private validateChainParams(chain: ChainParams): void {
     if (!chain || typeof chain !== "object") throw new TypeError("login() expects chain parameters");
     if (typeof chain.chain_id !== "string" || chain.chain_id.length === 0) throw new TypeError("chain.chain_id is required");
     if (typeof chain.protocol_contract !== "string" || chain.protocol_contract.length === 0) throw new TypeError("chain.protocol_contract is required");
@@ -377,11 +383,7 @@ export class ZSession {
     if (typeof chain.alias_authority !== "string" || chain.alias_authority.length === 0) throw new TypeError("chain.alias_authority is required");
   }
 
-  private validateBalancesParams(
-    ftSymbols?: string[],
-    nftContract?: ZeosLinkBalanceFilter,
-    atContract?: ZeosLinkBalanceFilter,
-  ): void {
+  private validateBalancesParams(ftSymbols?: string[], nftContract?: string, atContract?: string): void {
     if (ftSymbols !== undefined && (!Array.isArray(ftSymbols) || ftSymbols.some((sym) => typeof sym !== "string"))) {
       throw new TypeError("balances() ftSymbols must be an array of strings");
     }
@@ -390,6 +392,35 @@ export class ZSession {
     }
     if (atContract !== undefined && typeof atContract !== "string") {
       throw new TypeError("balances() atContract must be a string");
+    }
+  }
+
+  private validateZActions(zactions: ZAction[]): void {
+    if (!Array.isArray(zactions)) throw new TypeError("transact() expects an array of zactions");
+
+    for (const [idx, action] of zactions.entries()) {
+      if (!isRecord(action)) throw new TypeError(`zactions[${idx}] must be an object`);
+
+      const rawAction = action as Record<string, unknown>;
+      const name = rawAction.name;
+      if (typeof name !== "string" || !ZACTION_NAMES.has(name)) {
+        throw new TypeError(`zactions[${idx}].name must be one of: mint, spend, authenticate, publishnotes, withdraw`);
+      }
+
+      const data = rawAction.data;
+      if (!isRecord(data)) throw new TypeError(`zactions[${idx}].data must be an object`);
+
+      if (name === "authenticate") {
+        const nested = data.actions;
+        if (!Array.isArray(nested)) throw new TypeError(`zactions[${idx}].data.actions must be an array`);
+
+        for (const [actionIdx, nestedAction] of nested.entries()) {
+          if (!isRecord(nestedAction)) throw new TypeError(`zactions[${idx}].data.actions[${actionIdx}] must be an object`);
+          if (!isRecord(nestedAction.data)) {
+            throw new TypeError(`zactions[${idx}].data.actions[${actionIdx}].data must be an unpacked EOSIO JSON object`);
+          }
+        }
+      }
     }
   }
 }

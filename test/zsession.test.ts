@@ -1,12 +1,57 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import ZSession, { ZeosLinkConnectionError, ZeosLinkProtocolError, ZeosLinkTimeoutError, type ZeosLinkChainParams } from "../src";
+import ZSession, { ConnectionError, ProtocolError, TimeoutError, type ChainParams, type ZAction } from "../src";
 import { flushMicrotasks, lastSentId, MockWebSocket } from "./mock-websocket";
 
-const chain: ZeosLinkChainParams = {
+const chain: ChainParams = {
   chain_id: "chain-id",
   protocol_contract: "zeosprot1111",
   vault_contract: "zeosvault111",
   alias_authority: "aliasauth111",
+};
+
+const mintAction: ZAction = {
+  name: "mint",
+  data: {
+    to: "$SELF",
+    contract: "eosio.token",
+    quantity: "1.0000 EOS",
+    memo: "",
+    from: "alice",
+    publish_note: true,
+  },
+};
+
+const spendAction: ZAction = {
+  name: "spend",
+  data: {
+    contract: "eosio.token",
+    change_to: "$SELF",
+    publish_change_note: true,
+    to: [
+      {
+        to: "bob",
+        quantity: "1.0000 EOS",
+        memo: "",
+        publish_note: true,
+      },
+    ],
+  },
+};
+
+const authenticateAction: ZAction = {
+  name: "authenticate",
+  data: {
+    auth_token: "$AUTH0",
+    burn: true,
+    actions: [
+      {
+        account: "claimcontract",
+        name: "claimauctiop",
+        authorization: ["claimcontract@active"],
+        data: { round: 7 },
+      },
+    ],
+  },
 };
 
 async function login(session: ZSession): Promise<MockWebSocket> {
@@ -71,7 +116,7 @@ describe("ZSession", () => {
     await flushMicrotasks();
     ws.receive({ id: lastSentId(ws), status: "error", error: "balance failed" });
 
-    await expect(promise).rejects.toBeInstanceOf(ZeosLinkProtocolError);
+    await expect(promise).rejects.toBeInstanceOf(ProtocolError);
   });
 
   it("routes id-less server error frames to the only pending request", async () => {
@@ -110,7 +155,7 @@ describe("ZSession", () => {
     const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
     const ws = await login(session);
 
-    const promise = session.transact([{ name: "transfer", data: { quantity: "1.0000 EOS" } }]);
+    const promise = session.transact([mintAction]);
     await flushMicrotasks();
     ws.receive({ id: lastSentId(ws), status: "success", result: { transaction_id: "abc" } });
 
@@ -121,7 +166,7 @@ describe("ZSession", () => {
     const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
     const ws = await login(session);
 
-    const promise = session.transact([{ name: "transfer", data: {} }]);
+    const promise = session.transact([mintAction]);
     await flushMicrotasks();
     ws.receive({ id: lastSentId(ws), status: "error", error: "transaction declined" });
 
@@ -132,11 +177,73 @@ describe("ZSession", () => {
     const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
     const ws = await login(session);
 
-    const promise = session.transact([{ name: "transfer", data: {} }]);
+    const promise = session.transact([mintAction]);
     await flushMicrotasks();
     ws.receive({ status: "error", error: "wallet failed before correlated response" });
 
     await expect(promise).resolves.toMatchObject({ status: "error", error: "wallet failed before correlated response" });
+  });
+
+  it("sends spend zactions unchanged", async () => {
+    const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
+    const ws = await login(session);
+
+    const promise = session.transact([spendAction]);
+    await flushMicrotasks();
+
+    const sent = JSON.parse(ws.sent.at(-1)!);
+    expect(sent.params.zactions).toEqual([spendAction]);
+
+    ws.receive({ id: sent.id, status: "success", result: { transaction_id: "spend" } });
+    await expect(promise).resolves.toMatchObject({ status: "success" });
+  });
+
+  it("sends authenticate zactions with unpacked JSON action data unchanged", async () => {
+    const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
+    const ws = await login(session);
+
+    const promise = session.transact([authenticateAction]);
+    await flushMicrotasks();
+
+    const sent = JSON.parse(ws.sent.at(-1)!);
+    expect(sent.params.zactions).toEqual([authenticateAction]);
+    expect(sent.params.zactions[0].data.actions[0].data).toEqual({ round: 7 });
+    expect("contract" in sent.params.zactions[0].data).toBe(false);
+
+    ws.receive({ id: sent.id, status: "success", result: { transaction_id: "auth" } });
+    await expect(promise).resolves.toMatchObject({ status: "success" });
+  });
+
+  it("rejects invalid zaction names", async () => {
+    const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
+    await login(session);
+
+    await expect(session.transact([{ name: "transfer", data: {} } as never])).rejects.toThrow("zactions[0].name");
+  });
+
+  it("rejects packed authenticate action data on the JS side", async () => {
+    const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
+    await login(session);
+
+    await expect(
+      session.transact([
+        {
+          name: "authenticate",
+          data: {
+            auth_token: "$AUTH0",
+            burn: true,
+            actions: [
+              {
+                account: "claimcontract",
+                name: "claimauctiop",
+                authorization: ["claimcontract@active"],
+                data: "deadbeef",
+              },
+            ],
+          },
+        } as never,
+      ]),
+    ).rejects.toThrow("must be an unpacked EOSIO JSON object");
   });
 
   it("throws timeout errors and clears pending requests", async () => {
@@ -149,7 +256,7 @@ describe("ZSession", () => {
     expect(ws.sent.length).toBe(2);
 
     vi.advanceTimersByTime(11);
-    await expect(promise).rejects.toBeInstanceOf(ZeosLinkTimeoutError);
+    await expect(promise).rejects.toBeInstanceOf(TimeoutError);
   });
 
   it("rejects pending requests on logout", async () => {
@@ -160,7 +267,7 @@ describe("ZSession", () => {
     await flushMicrotasks();
     session.logout();
 
-    await expect(promise).rejects.toBeInstanceOf(ZeosLinkConnectionError);
+    await expect(promise).rejects.toBeInstanceOf(ConnectionError);
     expect(session.handle()).toBeNull();
   });
 
