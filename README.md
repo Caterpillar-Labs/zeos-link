@@ -1,8 +1,8 @@
-# zeos-link
+# @caterpillar-labs/zeos-link
 
 Browser SDK for connecting web apps to the local **CLOAK / ZEOS Link** wallet service.
 
-`zeos-link` is a tiny TypeScript SDK that talks to the CLOAK desktop wallet over a local secure WebSocket connection. It lets a web app request login approval, query private wallet balances, and submit shielded ZEOS actions for wallet-side proving, signing, and publishing.
+`@caterpillar-labs/zeos-link` is a tiny TypeScript SDK that talks to the CLOAK desktop wallet over a local secure WebSocket connection. It lets a web app request login approval, query private wallet balances, and submit shielded ZEOS actions for wallet-side proving, signing, and publishing.
 
 The default connection target is:
 
@@ -19,7 +19,7 @@ This package is intentionally small. It is **not** a general EOSIO wallet SDK, n
 Use this package when a web app wants to support the **CLOAK wallet**.
 
 ```ts
-import ZSession, { ALL_WALLET_CONTRACTS, type ChainParams, type ZAction } from "zeos-link";
+import ZSession, { ALL_WALLET_CONTRACTS, type ChainParams, type ZAction } from "@caterpillar-labs/zeos-link";
 
 const session = new ZSession();
 
@@ -92,15 +92,17 @@ Important:
 ## Installation
 
 ```bash
-npm install zeos-link
+npm install @caterpillar-labs/zeos-link
 ```
+
+The old unscoped `zeos-link` package has moved to this scoped package.
 
 ---
 
 ## Usage with npm / bundlers
 
 ```ts
-import ZSession from "zeos-link";
+import ZSession from "@caterpillar-labs/zeos-link";
 
 const session = new ZSession();
 ```
@@ -108,7 +110,7 @@ const session = new ZSession();
 Named import also works:
 
 ```ts
-import { ZSession } from "zeos-link";
+import { ZSession } from "@caterpillar-labs/zeos-link";
 ```
 
 Import types:
@@ -124,7 +126,7 @@ import type {
   WithdrawAction,
   BalancesResult,
   TransactResult,
-} from "zeos-link";
+} from "@caterpillar-labs/zeos-link";
 ```
 
 ---
@@ -144,7 +146,7 @@ You can copy the built browser file into your public assets and import it direct
 When installed from npm, the browser ESM build is available at:
 
 ```txt
-node_modules/zeos-link/dist/zeos-link.js
+node_modules/@caterpillar-labs/zeos-link/dist/zeos-link.js
 ```
 
 ---
@@ -166,7 +168,7 @@ Prefer the ESM build for modern apps.
 
 ## What this SDK does
 
-`zeos-link` handles:
+`@caterpillar-labs/zeos-link` handles:
 
 * opening/reusing a WebSocket connection to the local CLOAK wallet,
 * sending request frames with unique request ids,
@@ -448,7 +450,7 @@ Again: the handle is not a public EOSIO account identity.
 ### API
 
 ```ts
-import { ALL_WALLET_CONTRACTS } from "zeos-link";
+import { ALL_WALLET_CONTRACTS } from "@caterpillar-labs/zeos-link";
 
 const balances = await session.allBalances({
   ft: true,
@@ -1283,7 +1285,7 @@ import {
   TimeoutError,
   ConnectionError,
   SendError,
-} from "zeos-link";
+} from "@caterpillar-labs/zeos-link";
 
 function describeCloakError(err: unknown): string {
   if (err instanceof TimeoutError) {
@@ -1364,7 +1366,7 @@ Keep the SDK instance in app wallet state, not inside random components.
 Example sketch:
 
 ```ts
-import ZSession from "zeos-link";
+import ZSession from "@caterpillar-labs/zeos-link";
 
 const session = new ZSession();
 
@@ -1413,20 +1415,20 @@ app wallet adapter
   - knows token icons
   - knows notifications
   - owns walletSessionRef
-  - imports ZSession from zeos-link
+  - imports ZSession from @caterpillar-labs/zeos-link
 ```
 
 Bad:
 
 ```txt
-zeos-link SDK
+ZEOS Link SDK
   - imports React app types
   - knows about token icons
   - knows about app notifications
   - supports Anchor/WharfKit transaction shapes
 ```
 
-Keep `zeos-link` boring and protocol-focused.
+Keep the SDK boring and protocol-focused.
 
 ---
 
@@ -1466,7 +1468,7 @@ Good:
 
 ```html
 <script type="module">
-  import ZSession from "https://unpkg.com/zeos-link@0.2.0/dist/zeos-link.js";
+  import ZSession from "https://unpkg.com/@caterpillar-labs/zeos-link@0.3.0/dist/zeos-link.js";
 </script>
 ```
 
@@ -1474,7 +1476,7 @@ Bad:
 
 ```html
 <script type="module">
-  import ZSession from "https://unpkg.com/zeos-link@latest/dist/zeos-link.js";
+  import ZSession from "https://unpkg.com/@caterpillar-labs/zeos-link@latest/dist/zeos-link.js";
 </script>
 ```
 
@@ -1669,13 +1671,13 @@ From outside the repo:
 mkdir /tmp/zeos-link-smoke
 cd /tmp/zeos-link-smoke
 npm init -y
-npm install zeos-link
+npm install @caterpillar-labs/zeos-link
 ```
 
 Test ESM:
 
 ```bash
-node -e "import('zeos-link').then(m => console.log(typeof m.default, typeof m.ZSession))"
+node -e "import('@caterpillar-labs/zeos-link').then(m => console.log(typeof m.default, typeof m.ZSession))"
 ```
 
 Expected:
@@ -1687,7 +1689,7 @@ function function
 Test CJS:
 
 ```bash
-node -e "const m = require('zeos-link'); console.log(typeof m.default, typeof m.ZSession)"
+node -e "const m = require('@caterpillar-labs/zeos-link'); console.log(typeof m.default, typeof m.ZSession)"
 ```
 
 Expected:
@@ -1712,13 +1714,15 @@ npm pack --dry-run
 Publish:
 
 ```bash
-npm publish
+npm publish --access public
 ```
+
+The `--access public` flag matters for the first publish of a scoped npm package.
 
 Tag release:
 
 ```bash
-git tag v0.2.0
+git tag v0.3.0
 git push origin main --tags
 ```
 
@@ -1743,7 +1747,7 @@ import ZSession from "./zSessionService";
 After:
 
 ```ts
-import ZSession from "zeos-link";
+import ZSession from "@caterpillar-labs/zeos-link";
 ```
 
 Then delete the baked-in SDK copy.
