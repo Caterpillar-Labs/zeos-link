@@ -43,6 +43,22 @@ export interface AuthTokenBundle {
   unspent: string[];
 }
 
+/**
+ * Wallet contract filter for `all_balances` NFT / auth-token queries.
+ * Maps to contract id `0` in the desktop wallet (all contracts).
+ */
+export const ALL_WALLET_CONTRACTS = "";
+
+/** Parameters for the wallet `all_balances` WebSocket request. */
+export interface AllBalancesParams {
+  /** When true (default), include fungible token balances (`fts`). */
+  ft?: boolean;
+  /** NFT contract filter. Omit to skip NFTs. Use {@link ALL_WALLET_CONTRACTS} for all NFTs. */
+  nftContract?: string;
+  /** Auth-token contract filter. Omit to skip auth tokens. Use {@link ALL_WALLET_CONTRACTS} for all auth tokens. */
+  atContract?: string;
+}
+
 export interface BalancesResult {
   fts?: string[];
   nfts?: unknown[] | string[];

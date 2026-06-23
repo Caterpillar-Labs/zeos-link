@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import ZSession, { ConnectionError, ProtocolError, TimeoutError, type ChainParams, type ZAction } from "../src";
+import ZSession, { ALL_WALLET_CONTRACTS, ConnectionError, ProtocolError, TimeoutError, type ChainParams, type ZAction } from "../src";
 import { flushMicrotasks, lastSentId, MockWebSocket } from "./mock-websocket";
 
 const chain: ChainParams = {
   chain_id: "chain-id",
   protocol_contract: "zeosprot1111",
   vault_contract: "zeosvault111",
-  alias_authority: "aliasauth111",
+  alias_authority: "aliasauth111@public",
 };
 
 const mintAction: ZAction = {
@@ -101,11 +101,36 @@ describe("ZSession", () => {
     const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
     const ws = await login(session);
 
-    const promise = session.allBalances(true, false, true);
+    const promise = session.allBalances({ ft: true, atContract: "aliasauth111" });
     await flushMicrotasks();
     ws.receive({ id: lastSentId(ws), status: "success", result: { fts: ["1.0000 EOS"], ats: { unspent: [], spent: [] } } });
 
     await expect(promise).resolves.toEqual({ fts: ["1.0000 EOS"], ats: { unspent: [], spent: [] } });
+  });
+
+  it("sends wallet-supported all_balances params", async () => {
+    const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
+    const ws = await login(session);
+
+    const promise = session.allBalances({
+      ft: true,
+      nftContract: ALL_WALLET_CONTRACTS,
+      atContract: "aliasauth111",
+    });
+    await flushMicrotasks();
+
+    const sent = JSON.parse(ws.sent.at(-1)!);
+    expect(sent).toMatchObject({
+      request: "all_balances",
+      params: {
+        ft: true,
+        nft_contract: ALL_WALLET_CONTRACTS,
+        at_contract: "aliasauth111",
+      },
+    });
+
+    ws.receive({ id: sent.id, status: "success", result: { fts: [], nfts: [], ats: { spent: [], unspent: [] } } });
+    await expect(promise).resolves.toMatchObject({ ats: { spent: [], unspent: [] } });
   });
 
   it("throws on balance protocol error", async () => {
@@ -130,7 +155,7 @@ describe("ZSession", () => {
     await expect(promise).rejects.toMatchObject({ message: "rate limited" });
   });
 
-  it("sends balances params in the server-supported shape", async () => {
+  it("queries balances via all_balances and filters fts client-side", async () => {
     const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
     const ws = await login(session);
 
@@ -139,16 +164,24 @@ describe("ZSession", () => {
 
     const sent = JSON.parse(ws.sent.at(-1)!);
     expect(sent).toMatchObject({
-      request: "balances",
+      request: "all_balances",
       params: {
-        ft_symbols: ["4,EOS", "8,CLOAK"],
+        ft: true,
         nft_contract: "atomicassets",
         at_contract: "theauthcontr",
       },
     });
 
-    ws.receive({ id: sent.id, status: "success", result: { fts: ["0 4,EOS"], nfts: [], ats: { spent: [], unspent: [] } } });
-    await expect(promise).resolves.toMatchObject({ fts: ["0 4,EOS"] });
+    ws.receive({
+      id: sent.id,
+      status: "success",
+      result: {
+        fts: ["0 4,EOS@eosio.token", "0 8,CLOAK@cloak.token", "1.0000 EOS@eosio.token"],
+        nfts: [],
+        ats: { spent: [], unspent: [] },
+      },
+    });
+    await expect(promise).resolves.toMatchObject({ fts: ["0 4,EOS@eosio.token", "0 8,CLOAK@cloak.token"] });
   });
 
   it("returns successful transaction responses", async () => {
@@ -251,7 +284,11 @@ describe("ZSession", () => {
     const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
     const ws = await login(session);
 
-    const promise = session.allBalances(true, true, true, { timeoutMs: 10 });
+    const promise = session.allBalances({
+      ft: true,
+      nftContract: ALL_WALLET_CONTRACTS,
+      atContract: ALL_WALLET_CONTRACTS,
+    }, { timeoutMs: 10 });
     await flushMicrotasks();
     expect(ws.sent.length).toBe(2);
 

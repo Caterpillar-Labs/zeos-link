@@ -1,5 +1,7 @@
 import {
+  ALL_WALLET_CONTRACTS,
   DEFAULT_URL,
+  type AllBalancesParams,
   type BalancesResult,
   type ChainParams,
   type LoginResult,
@@ -137,17 +139,17 @@ export class ZSession {
     this.rejectAllPending(new ConnectionError("Logged out"));
   }
 
-  async allBalances(
-    ft: boolean = true,
-    nft: boolean = true,
-    at: boolean = true,
-    opts: RequestOptions = {},
-  ): Promise<BalancesResult> {
+  async allBalances(params: AllBalancesParams = {}, opts: RequestOptions = {}): Promise<BalancesResult> {
+    this.validateAllBalancesParams(params);
     await this.ensureOpen(this.onCloseExternal);
-    const res = await this.send("all_balances", { ft, nft, at }, { timeoutMs: opts.timeoutMs ?? 15_000 });
+    const res = await this.send("all_balances", buildAllBalancesWireParams(params), { timeoutMs: opts.timeoutMs ?? 15_000 });
     return (res.result ?? {}) as BalancesResult;
   }
 
+  /**
+   * Filtered balance query implemented on top of `all_balances`.
+   * The desktop wallet does not expose a separate `balances` request.
+   */
   async balances(
     ftSymbols?: string[],
     nftContract?: string,
@@ -155,17 +157,22 @@ export class ZSession {
     opts: RequestOptions = {},
   ): Promise<BalancesResult> {
     this.validateBalancesParams(ftSymbols, nftContract, atContract);
-    await this.ensureOpen(this.onCloseExternal);
-    const res = await this.send(
-      "balances",
-      {
-        ft_symbols: ftSymbols,
-        nft_contract: nftContract,
-        at_contract: atContract,
-      },
-      { timeoutMs: opts.timeoutMs ?? 15_000 },
-    );
-    return (res.result ?? {}) as BalancesResult;
+    const wantsFt = ftSymbols === undefined || ftSymbols.length > 0;
+    const allBalancesParams: AllBalancesParams = { ft: wantsFt };
+    if (nftContract !== undefined) {
+      allBalancesParams.nftContract = nftContract;
+    }
+    if (atContract !== undefined) {
+      allBalancesParams.atContract = atContract;
+    }
+    const result = await this.allBalances(allBalancesParams, opts);
+    if (!ftSymbols || ftSymbols.length === 0 || !result.fts) {
+      return result;
+    }
+    return {
+      ...result,
+      fts: filterFtBalances(result.fts, ftSymbols),
+    };
   }
 
   async transact(
@@ -383,6 +390,18 @@ export class ZSession {
     if (typeof chain.alias_authority !== "string" || chain.alias_authority.length === 0) throw new TypeError("chain.alias_authority is required");
   }
 
+  private validateAllBalancesParams(params: AllBalancesParams): void {
+    if (params.ft !== undefined && typeof params.ft !== "boolean") {
+      throw new TypeError("allBalances() ft must be a boolean");
+    }
+    if (params.nftContract !== undefined && typeof params.nftContract !== "string") {
+      throw new TypeError("allBalances() nftContract must be a string");
+    }
+    if (params.atContract !== undefined && typeof params.atContract !== "string") {
+      throw new TypeError("allBalances() atContract must be a string");
+    }
+  }
+
   private validateBalancesParams(ftSymbols?: string[], nftContract?: string, atContract?: string): void {
     if (ftSymbols !== undefined && (!Array.isArray(ftSymbols) || ftSymbols.some((sym) => typeof sym !== "string"))) {
       throw new TypeError("balances() ftSymbols must be an array of strings");
@@ -425,4 +444,34 @@ export class ZSession {
   }
 }
 
+function buildAllBalancesWireParams(params: AllBalancesParams): Record<string, unknown> {
+  const wire: Record<string, unknown> = {};
+  if (params.ft !== false) {
+    wire.ft = true;
+  }
+  if (params.nftContract !== undefined) {
+    wire.nft_contract = params.nftContract;
+  }
+  if (params.atContract !== undefined) {
+    wire.at_contract = params.atContract;
+  }
+  return wire;
+}
+
+function filterFtBalances(fts: string[], ftSymbols: string[]): string[] {
+  const wanted = new Set(ftSymbols);
+  return fts.filter((entry) => {
+    const at = entry.lastIndexOf("@");
+    const balance = at >= 0 ? entry.slice(0, at) : entry;
+    for (const symbol of wanted) {
+      const sym = symbol.includes("@") ? symbol.split("@")[0]! : symbol;
+      if (balance === symbol || balance.endsWith(sym) || balance.includes(sym)) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+export { ALL_WALLET_CONTRACTS };
 export default ZSession;

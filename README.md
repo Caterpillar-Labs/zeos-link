@@ -19,7 +19,7 @@ This package is intentionally small. It is **not** a general EOSIO wallet SDK, n
 Use this package when a web app wants to support the **CLOAK wallet**.
 
 ```ts
-import ZSession, { type ChainParams, type ZAction } from "zeos-link";
+import ZSession, { ALL_WALLET_CONTRACTS, type ChainParams, type ZAction } from "zeos-link";
 
 const session = new ZSession();
 
@@ -37,7 +37,11 @@ if (!login) {
   return;
 }
 
-const balances = await session.allBalances(true, true, true);
+const balances = await session.allBalances({
+  ft: true,
+  nftContract: ALL_WALLET_CONTRACTS,
+  atContract: ALL_WALLET_CONTRACTS,
+});
 
 const zactions: ZAction[] = [
   {
@@ -444,31 +448,41 @@ Again: the handle is not a public EOSIO account identity.
 ### API
 
 ```ts
-const balances = await session.allBalances(true, true, true);
+import { ALL_WALLET_CONTRACTS } from "zeos-link";
+
+const balances = await session.allBalances({
+  ft: true,
+  nftContract: ALL_WALLET_CONTRACTS,
+  atContract: "thezeosalias",
+});
 ```
 
 ### Type
 
 ```ts
 allBalances(
-  ft?: boolean,
-  nft?: boolean,
-  at?: boolean,
+  params?: AllBalancesParams,
   opts?: RequestOptions
 ): Promise<BalancesResult>
+
+interface AllBalancesParams {
+  ft?: boolean;
+  nftContract?: string;
+  atContract?: string;
+}
 ```
 
 ### Request params
 
-The SDK sends:
+The SDK sends the wire shape supported by the CLOAK desktop wallet:
 
 ```json
 {
   "request": "all_balances",
   "params": {
     "ft": true,
-    "nft": true,
-    "at": true
+    "nft_contract": "",
+    "at_contract": "thezeosalias"
   }
 }
 ```
@@ -476,10 +490,12 @@ The SDK sends:
 Meaning:
 
 ```txt
-ft  = fungible token balances
-nft = non-fungible token balances
-at  = authentication tokens
+ft            = include fungible token balances (`fts`)
+nft_contract  = NFT contract filter; `""` means all contracts (wallet contract id 0)
+at_contract   = auth-token contract filter; `""` means all contracts (wallet contract id 0)
 ```
+
+Omit `nftContract` / `atContract` to skip those sections entirely.
 
 ### Result shape
 
@@ -499,7 +515,7 @@ interface BalancesResult {
 Example:
 
 ```ts
-const balances = await session.allBalances(true, false, false);
+const balances = await session.allBalances({ ft: true });
 
 console.log(balances.fts);
 ```
@@ -535,28 +551,20 @@ balances(
 
 ### Request params
 
-The SDK sends:
+`balances()` calls `all_balances` on the wallet and filters `fts` client-side when `ftSymbols` is provided:
 
 ```json
 {
-  "request": "balances",
+  "request": "all_balances",
   "params": {
-    "ft_symbols": ["4,EOS", "8,CLOAK"],
+    "ft": true,
     "nft_contract": "atomicassets",
     "at_contract": "theauthcontr"
   }
 }
 ```
 
-The wallet server expects:
-
-```txt
-ft_symbols   array of strings
-nft_contract string
-at_contract  string
-```
-
-Object-shaped filters are not part of the current protocol.
+The desktop wallet does not expose a separate `balances` request.
 
 ### Fungible token symbol format
 
@@ -1133,9 +1141,10 @@ interface RequestOptions {
 Examples:
 
 ```ts
-await session.allBalances(true, true, true, {
-  timeoutMs: 30_000,
-});
+await session.allBalances(
+  { ft: true, nftContract: ALL_WALLET_CONTRACTS, atContract: ALL_WALLET_CONTRACTS },
+  { timeoutMs: 30_000 },
+);
 
 await session.transact(zactions, true, true, {
   timeoutMs: 120_000,
@@ -1214,7 +1223,11 @@ Use:
 
 ```ts
 try {
-  const balances = await session.allBalances(true, true, true);
+  const balances = await session.allBalances({
+  ft: true,
+  nftContract: ALL_WALLET_CONTRACTS,
+  atContract: ALL_WALLET_CONTRACTS,
+});
 } catch (err) {
   // Show a real error. Do not treat as "no balances".
 }
@@ -1301,7 +1314,11 @@ Then:
 
 ```ts
 try {
-  const balances = await session.allBalances(true, true, true);
+  const balances = await session.allBalances({
+  ft: true,
+  nftContract: ALL_WALLET_CONTRACTS,
+  atContract: ALL_WALLET_CONTRACTS,
+});
 } catch (err) {
   notifyUser(describeCloakError(err));
 }
@@ -1524,20 +1541,22 @@ or:
   "request": "all_balances",
   "params": {
     "ft": true,
-    "nft": true,
-    "at": true
+    "nft_contract": "",
+    "at_contract": "thezeosalias"
   }
 }
 ```
 
-### Filtered balances request
+### Filtered balances (`balances()` helper)
+
+`balances()` uses `all_balances` and filters `fts` in the SDK:
 
 ```json
 {
   "id": 3,
-  "request": "balances",
+  "request": "all_balances",
   "params": {
-    "ft_symbols": ["4,EOS", "8,CLOAK"],
+    "ft": true,
     "nft_contract": "atomicassets",
     "at_contract": "theauthcontr"
   }
@@ -1748,8 +1767,8 @@ After integrating into a dapp, test against the real CLOAK wallet:
 2. CLOAK wallet open but login declined -> login returns null
 3. wrong chain params -> login returns null
 4. correct chain params + approval -> login succeeds
-5. allBalances(ft=true,nft=true,at=true) -> returns balances after wallet approval
-6. balances([...], nftContract, atContract) -> returns filtered balances after wallet approval
+5. allBalances({ ft, nftContract, atContract }) -> returns balances after wallet approval
+6. balances([...], nftContract, atContract) -> same wallet request, FT filter applied in SDK
 7. transact(valid zactions) -> wallet signature dialog appears
 8. declined/failed transaction -> transact resolves status:error
 9. successful transaction -> transact resolves status:success
