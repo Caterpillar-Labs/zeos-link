@@ -66,6 +66,20 @@ export interface BalancesResult {
   [key: string]: unknown;
 }
 
+/** Successful wallet-side metadata merged into a `transact` response payload. */
+export interface TransactPayload {
+  /** Auth-token metadata produced while signing the private transaction. */
+  auth_tokens?: AuthTokenBundle;
+  /**
+   * Exact private-transaction fee resolved and paid by the wallet.
+   *
+   * Canonical ExtendedAsset string, for example `0.0123 CLOAK@thezeostoken`.
+   * Present only when a compatible wallet reports a confirmed successful fee.
+   */
+  tx_fee?: string;
+  [key: string]: unknown;
+}
+
 export interface TransactResult {
   id?: number;
   status: Status;
@@ -73,7 +87,7 @@ export interface TransactResult {
   response?: unknown;
   error?: string;
   detail?: unknown;
-  payload?: unknown;
+  payload?: TransactPayload;
   [key: string]: unknown;
 }
 

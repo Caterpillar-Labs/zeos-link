@@ -195,6 +195,26 @@ describe("ZSession", () => {
     await expect(promise).resolves.toMatchObject({ status: "success", result: { transaction_id: "abc" } });
   });
 
+  it("preserves exact wallet-resolved transaction fee metadata", async () => {
+    const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
+    const ws = await login(session);
+
+    const promise = session.transact([mintAction]);
+    await flushMicrotasks();
+    ws.receive({
+      id: lastSentId(ws),
+      status: "success",
+      payload: {
+        transaction_id: "fee-test",
+        auth_tokens: { spent: [], unspent: [] },
+        tx_fee: "0.0123 CLOAK@thezeostoken",
+      },
+    });
+
+    const result = await promise;
+    expect(result.payload?.tx_fee).toBe("0.0123 CLOAK@thezeostoken");
+  });
+
   it("returns structured transaction error responses", async () => {
     const session = new ZSession("wss://test", { WebSocket: MockWebSocket });
     const ws = await login(session);

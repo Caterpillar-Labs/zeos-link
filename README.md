@@ -640,6 +640,21 @@ The SDK sends a `transact` request with the active login chain params:
 }
 ```
 
+### Exact wallet-resolved transaction fee
+
+Compatible CLOAK wallets include the exact fee actually resolved and paid by the private wallet in successful transaction responses:
+
+```ts
+const result = await session.transact(zactions);
+
+if (result.status === "success" && result.payload?.tx_fee) {
+  console.log(result.payload.tx_fee);
+  // Example: "0.0123 CLOAK@thezeostoken"
+}
+```
+
+`payload.tx_fee` is a canonical ExtendedAsset string (`quantity@contract`). It is calculated by the wallet after private-note selection; the SDK does not estimate or recompute it. The field is optional so older wallets and transactions without reported fee metadata remain compatible. Treat it as a confirmed wallet balance effect only on a successful transaction response.
+
 ### Important: this is not Anchor / WharfKit
 
 This is valid for CLOAK / ZEOS Link:
